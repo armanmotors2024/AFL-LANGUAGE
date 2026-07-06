@@ -1,180 +1,99 @@
-import os
-from flask import Flask, request, render_template_string, redirect, url_for, send_from_directory, jsonify
-from werkzeug.utils import secure_filename
+from flask import Flask, request, render_template_string
 
 app = Flask(__name__)
 
-# تنظیمات
-UPLOAD_FOLDER = 'uploaded_afl_files'
-ALLOWED_EXTENSIONS = {'afl'}
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# ✅ تابع allowed_file
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-# کل قالب HTML به صورت یک رشته چندخطی (Multi-line String)
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AFL Uploader</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100;400;700&display=swap');
-        body { font-family: 'Vazirmatn', sans-serif; background-color: #0f172a; color: #f8fafc; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .gradient-text { background: linear-gradient(90deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-0.5rem); }
-        }
-        .animate-bounce {
-            animation: bounce 1s infinite;
-        }
-        .animate-bounce-delay-1 { animation-delay: 0.1s; }
-        .animate-bounce-delay-2 { animation-delay: 0.2s; }
-    </style>
-</head>
-<body class="min-h-screen flex items-center justify-center p-4">
-    <div class="max-w-md w-full glass rounded-3xl p-8 shadow-2xl">
-        <div class="text-center mb-8">
-            <div class="inline-block p-4 rounded-2xl bg-blue-500/10 mb-4"><i class="fas fa-cloud-upload-alt text-4xl text-blue-400"></i></div>
-            <h1 class="text-3xl font-bold gradient-text">AFL Uploader</h1>
-            <p class="text-slate-400 mt-2 text-sm">آپلود فایل‌های .afl شما</p>
-        </div>
-        <form id="uploadForm" enctype="multipart/form-data" action="{{ url_for('upload_file') }}" method="POST" class="space-y-6">
-            <div class="relative group">
-                <input type="file" id="fileInput" name="file" accept=".afl" class="hidden" required>
-                <label for="fileInput" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-600 rounded-2xl cursor-pointer group-hover:border-blue-500 group-hover:bg-blue-500/5 transition-all">
-                    <i class="fas fa-file-code text-3xl text-slate-500 group-hover:text-blue-400 mb-2"></i>
-                    <span id="fileNameDisplay" class="text-slate-400 text-sm">انتخاب فایل AFL...</span>
-                </label>
-            </div>
-            <button type="submit" id="submitBtn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all transform active:scale-95 flex items-center justify-center">
-                <span>آپلود فایل</span><i class="fas fa-paper-plane mr-2"></i>
-            </button>
-        </form>
-        <div id="statusArea" class="mt-6 hidden">
-            <div id="loader" class="flex items-center justify-center space-x-2 space-x-reverse">
-                <div class="w-3 h-3 bg-blue-400 rounded-full animate-bounce"></div>
-                <div class="w-3 h-3 bg-blue-400 rounded-full animate-bounce animate-bounce-delay-1"></div>
-                <div class="w-3 h-3 bg-blue-400 rounded-full animate-bounce animate-bounce-delay-2"></div>
-                <span class="text-sm text-slate-400 mr-2">در حال ارسال...</span>
-            </div>
-            <div id="resultBox" class="hidden p-4 rounded-xl text-sm"></div>
-        </div>
-        {% if message %}
-            <div id="messageArea" class="mt-6 p-4 rounded-xl text-sm {% if 'موفقیت' in message %}bg-green-500/10 text-green-400 border border-green-500/20{% else %}bg-red-500/10 text-red-400 border border-red-500/20{% endif %}">
-                {{ message|safe }}
-            </div>
-        {% endif %}
-    </div>
-
-    <script>
-        const fileInput = document.getElementById('fileInput');
-        const fileNameDisplay = document.getElementById('fileNameDisplay');
-        const uploadForm = document.getElementById('uploadForm');
-        const statusArea = document.getElementById('statusArea');
-        const loader = document.getElementById('loader');
-        const resultBox = document.getElementById('resultBox');
-        const submitBtn = document.getElementById('submitBtn');
-
-        fileInput.onchange = () => {
-            if (fileInput.files.length > 0) {
-                fileNameDisplay.textContent = fileInput.files[0].name;
-                fileNameDisplay.classList.add('text-blue-400');
-            }
-        };
-
-        uploadForm.onsubmit = async (e) => {
-            e.preventDefault();
-            statusArea.classList.remove('hidden');
-            loader.classList.remove('hidden');
-            resultBox.classList.add('hidden');
-            submitBtn.disabled = true;
-            
-            const messageArea = document.getElementById('messageArea');
-            if (messageArea) messageArea.classList.add('hidden');
-
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-
-            try {
-                const response = await fetch(uploadForm.action, { method: 'POST', body: formData });
-                const data = await response.json();
-                loader.classList.add('hidden');
-                resultBox.classList.remove('hidden');
-
-                if (response.ok) {
-                    resultBox.className = 'p-4 rounded-xl text-sm bg-green-500/10 text-green-400 border border-green-500/20';
-                    resultBox.innerHTML = `<div class="text-center"><p class="font-bold">موفقیت‌آمیز!</p><a href="${data.url}" target="_blank" class="text-xs underline break-all">${data.url}</a></div>`;
-                } else {
-                    resultBox.className = 'p-4 rounded-xl text-sm bg-red-500/10 text-red-400 border border-red-500/20';
-                    resultBox.innerHTML = `<p class="text-center">خطا: ${data.error || 'نامشخص'}</p>`;
-                }
-            } catch (err) {
-                loader.classList.add('hidden');
-                resultBox.classList.remove('hidden');
-                resultBox.className = 'p-4 rounded-xl text-sm bg-red-500/10 text-red-400 border border-red-500/20';
-                resultBox.innerHTML = `<p class="text-center">خطای ارتباط با سرور</p>`;
-                console.error("Upload error:", err);
-            } finally {
-                submitBtn.disabled = false;
-            }
-        };
-    </script>
-</body>
-</html>
+# --- استایل مدرن و تیره ---
+STYLE = """
+<style>
+    body { background-color: #0f0f0f; color: #e0e0e0; font-family: sans-serif; padding: 30px; }
+    .container { max-width: 900px; margin: auto; background: #1a1a1a; padding: 30px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); }
+    h2 { color: #007acc; border-bottom: 1px solid #333; padding-bottom: 10px; }
+    textarea { width: 100%; height: 200px; background: #252526; color: #dcdcdc; border: 1px solid #3c3c3c; padding: 15px; font-size: 15px; font-family: monospace; box-sizing: border-box; border-radius: 8px; resize: vertical; }
+    .btn { width: 100%; padding: 15px; background: #007acc; color: white; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; margin-top: 15px; }
+    .console { margin-top: 25px; background: #000; padding: 15px; border-radius: 8px; border-left: 5px solid #007acc; font-family: monospace; font-size: 14px; color: #00ff00; }
+    .links-section { margin-top: 25px; padding: 15px; background: #252526; border-radius: 8px; border: 1px solid #007acc; }
+    .link-item { display: block; padding: 10px; color: #4fc1ff; text-decoration: none; font-weight: bold; margin-top: 5px; }
+    .guide { margin-top: 20px; font-size: 13px; color: #777; }
+    .site-content { background: white; color: #333; padding: 50px; border-radius: 10px; min-height: 300px; text-align: center; font-size: 24px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+</style>
 """
+
+class AFLEngine:
+    def __init__(self):
+        self.routes = {}
+
+    def execute(self, code):
+        lines = code.split('\n')
+        output_log = []
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+
+            if line.startswith("RT "):
+                path_part = line[3:].strip()
+                path = f"/{path_part}" if not path_part.startswith("/") else path_part
+                content = f"<div class='site-content'><h1>🚀 Welcome to {path}</h1><p>Built by AFL!</p></div>"
+                self.routes[path] = content
+                output_log.append(f"✨ SUCCESS: Created -> {path}")
+            elif line.startswith("R "):
+                output_log.append(f"> {line[2:].strip()}")
+            else:
+                output_log.append(f"⚠️ Unknown: {line}")
+        return "<br>".join(output_log)
+
+engine = AFLEngine()
+
+# --- قالب اصلی (بدون استفاده از Jinja2 برای جلوگیری از خطا) ---
+def get_html(log_content, code, links_html):
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><title>AFL Builder</title>{STYLE}</head>
+    <body>
+        <div class="container">
+            <h2>🛠️ AFL Web Engine</h2>
+            <form method="POST" action="/run">
+                <textarea name="code" placeholder="Type AFL code...">{code}</textarea>
+                <button type="submit" class="btn">🚀 BUILD & DEPLOY</button>
+            </form>
+            <div class="console"><strong>Logs:</strong><br>{log_content}</div>
+            {links_html}
+            <div class="guide"><b>Commands:</b> RT /name | R message</div>
+        </div>
+    </body>
+    </html>
+    """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE, message=None)
+    return get_html("System Ready...", "", "")
 
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return render_template_string(HTML_TEMPLATE, message="خطا: هیچ فایلی ارسال نشده است."), 400
+@app.route('/run', methods=['POST'])
+def run():
+    code = request.form.get('code', '')
+    log_display = engine.execute(code)
     
-    file = request.files['file']
+    # ساخت بخش لینک‌ها به صورت دستی
+    links_html = ""
+    if engine.routes:
+        links_html = '<div class="links-section"><strong>🔗 Live Websites:</strong>'
+        for path in engine.routes.keys():
+            links_html += f'<a class="link-item" href="{path}">🌐 Open: {path}</a>'
+        links_html += '</div>'
     
-    if file.filename == '':
-        return render_template_string(HTML_TEMPLATE, message="خطا: نام فایل خالی است."), 400
-    
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        
-        try:
-            file.save(filepath)
-            download_link = url_for('download_file', name=filename, _external=True)
-            
-            response_data = {
-                "url": download_link,
-                "status": "success",
-                "message": f"فایل '{filename}' با موفقیت آپلود شد."
-            }
-            return jsonify(response_data), 200
-            
-        except Exception as e:
-            print(f"Error saving file: {e}")
-            return render_template_string(HTML_TEMPLATE, message=f"خطا در ذخیره فایل: {str(e)}"), 500
-            
-    else:
-        return render_template_string(HTML_TEMPLATE, message="خطا: فرمت فایل مجاز نیست. لطفاً فایل با پسوند .afl انتخاب کنید."), 400
+    return get_html(log_display, code, links_html)
 
-@app.route('/uploads/<name>')
-def download_file(name):
-    try:
-        return send_from_directory(app.config['UPLOAD_FOLDER'], name, as_attachment=True)
-    except FileNotFoundError:
-        return "فایل یافت نشد", 404
+@app.before_request
+def handle_dynamic_routes():
+    path = request.path
+    if path in engine.routes:
+        return f"""
+        <html><head>{STYLE}</head>
+        <body style="display:flex; justify-content:center; align-items:center; min-height:100vh;">
+            <div style="max-width:800px; width:100%;">{engine.routes[path]}
+            <br><center><a href="/" style="color:#007acc;">⬅️ Back</a></center></div>
+        </body></html>
+        """
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
